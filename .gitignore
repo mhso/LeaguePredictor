@@ -1,4 +1,4 @@
 data
 test_data
 __pycache__
-venv
+digit_classifier.pt

@@ -1,0 +1,2 @@
+CHAR_INPUT_DIM = (3, 32, 32)
+TRAIN_WITH_GPU = True

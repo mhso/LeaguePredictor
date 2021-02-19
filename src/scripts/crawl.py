@@ -18,7 +18,7 @@ def crawl_for_game_data(riot_api_key):
     match_endpoint = "lol/match/v4/matches"
     start_id = get_start_id()
     endpoints = [("match", match_endpoint), ("timeline", timeline_endpoint)]
-    for match_id in range(start_id, 5091939533, 1):
+    for match_id in range(start_id, 5091939533, 10):
         for desc, endpoint in endpoints:
             try:
                 response = requests.get(
