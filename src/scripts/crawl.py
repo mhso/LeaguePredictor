@@ -19,7 +19,7 @@ def crawl_for_game_data(riot_api_key):
     timeline_endpoint = "lol/match/v4/timelines/by-match"
     match_endpoint = "lol/match/v4/matches"
     start_id = get_start_id()
-    legal_queues = set([4, 6, 9, 42, 410, 420, 440, 700])
+    legal_queues = set([4, 6, 42, 410, 420, 440, 700])
     endpoints = [("match", match_endpoint), ("timeline", timeline_endpoint)]
     for match_id in range(start_id, 5091939533, 10):
         for desc, endpoint in endpoints:

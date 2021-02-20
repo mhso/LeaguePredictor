@@ -1,12 +1,14 @@
 from glob import glob
-import os
+from time import time
 import multiprocessing
 import json
 from json.decoder import JSONDecodeError
 import numpy as np
-import torch
+if __name__ == "__main__":
+    import torch
+    from classifier.dataset import Data, create_dataloaders_dict
 import config
-from classifier.dataset import Data, create_dataloaders_dict
+from game_data import GameData
 
 def group_data(files):
     data_dict = {}
@@ -35,29 +37,80 @@ def group_data(files):
 
     return grouped_data
 
-def get_match_data(files):
-    data = []
-    for match_file, timeline_file in files:
-        try:
-            match_data = json.load(open(match_file, encoding="utf-8"))
-            timeline_data = json.load(open(timeline_file, encoding="utf-8"))
-            data.append((match_data, timeline_data))
-        except JSONDecodeError:
-            print(match_file)
+def shape_input(data):
     return data
 
+def get_data_from_file(filenames):
+    data = []
+    match_file, timeline_file = filenames
+    try:
+        with open(match_file, encoding="utf-8") as match_fp:
+            match_data = json.load(match_fp)
+        with open(timeline_file, encoding="utf-8") as timeline_fp:
+            timeline_data = json.load(timeline_fp)
+
+        data_blue = []
+        data_red = []
+        for participant in match_data["participants"]:
+            if participant["teamId"] == 100:
+                data_blue.append(participant["championId"])
+            else:
+                data_red.append(participant["championId"])
+
+        team_data = match_data["teams"]
+        blue_won = int(not ((team_data[0]["teamId"] == 100) ^ (team_data[0]["win"] == "Win")))
+
+        data = [[data_blue, data_red], blue_won]
+
+        return data
+    except JSONDecodeError as exc:
+        print(match_file)
+        raise exc
+
 def get_data(validation_split):
+    game_data_handler = GameData()
     data_x = []
     data_y = []
     files = glob(f"data/training_data/games/*.json")
 
+    config.log(f"Datapoints: {len(files)}")
+
     grouped_data = group_data(files)
 
-    print(f"Complete datapoints: {len(grouped_data)}")
+    config.log(f"Complete datapoints: {len(grouped_data)}")
 
-    data = get_match_data(grouped_data)
+    time_start = time()
 
-    print(f"Complete datapoints: {len(data)}")
+    data_processes = 8
+    with multiprocessing.Pool(processes=data_processes) as pool:
+        config.log(f"Loading game data in parallel across {data_processes} processes...")
+        data = pool.map(get_data_from_file, grouped_data)
+
+    config.log(f"Loaded {len(data)} datapoints in {time() - time_start:.2f} seconds.")
+
+    champion_ids = game_data_handler.get_champion_ids()
+    games_for_champ = {champ_id: 0 for champ_id in champion_ids}
+    wins_for_champ = {champ_id: 0 for champ_id in champion_ids}
+
+    for game_data in data:
+        blue_champs = game_data[0][0]
+        red_champs = game_data[0][1]
+        blue_won = game_data[1]
+        for champ_id in blue_champs:
+            games_for_champ[champ_id] += 1
+            if blue_won:
+                wins_for_champ[champ_id] += 1
+        for champ_id in red_champs:
+            games_for_champ[champ_id] += 1
+            if not blue_won:
+                wins_for_champ[champ_id] += 1
+
+    for champ_id in games_for_champ:
+        champ_name = game_data_handler.get_champ_name(champ_id)
+        games = games_for_champ[champ_id]
+        wins = wins_for_champ[champ_id]
+        pct = int((wins / games) * 100)
+        print(f"{champ_name} - Games: {games} - Wins: {wins} ({pct}%)")
 
     # assert len(data_x) == len(data_y)
 

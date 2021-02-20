@@ -6,6 +6,7 @@ from game_data import GameData, MY_SUMM_ID
 from classifier.digit_classifier import DigitClassifier
 from features import feature_extraction
 from classifier import digit_dataset
+import config
 
 TEST = True
 
@@ -216,15 +217,13 @@ def get_similarities_fancy(captured_img, actual_images, transform=None):
 
         similarity = 0
         for m, n in matches:
-            if m.distance < 0.75*n.distance:
-                similarity += 1
+            if m.distance < 0.7*n.distance:
+                similarity += n.distance - m.distance
+        similarity = similarity / len(matches)
 
         similarities.append(similarity)
 
-    max_similarity = max(similarities) or 1
-    normed = [1 - (s / max_similarity) for s in similarities]
-
-    return normed
+    return similarities
 
 def get_similarities(captured_img, actual_images, transform=None):
     similarities = []
@@ -241,14 +240,14 @@ def get_similarities(captured_img, actual_images, transform=None):
 
     return similarities
 
-def get_best_matches(similarities, search_items):
+def get_best_matches(similarities, search_items, minimize):
     best_matches = []
     for champ_similarities in similarities:
         best_match = 0
-        max_similarity = 1
+        best_similarity = max(champ_similarities) if minimize else min(champ_similarities)
         for index, similarity in enumerate(champ_similarities):
-            if similarity < max_similarity:
-                max_similarity = similarity
+            if (minimize and similarity < best_similarity) or (not minimize and similarity > best_similarity):
+                best_similarity = similarity
                 best_match = index
 
         best_matches.append(search_items[best_match])
@@ -283,16 +282,59 @@ class GameState:
         ]
 
         def transform(actual_img, captured_img):
-            return reshape_image(actual_img, captured_img.shape[:2])
+            return cv2.cvtColor(
+                reshape_image(actual_img, captured_img.shape[:2]),
+                cv2.COLOR_BGR2GRAY
+            )
 
         similarities = []
         for captured_portrait in portraits:
             similarity = get_similarities_fancy(
-                captured_portrait, actual_portraits, transform
+                cv2.cvtColor(captured_portrait, cv2.COLOR_BGR2GRAY),
+                actual_portraits, transform
             )
             similarities.append(similarity)
 
-        best_matches = get_best_matches(similarities, active_champs)
+        best_matches = get_best_matches(similarities, active_champs, False)
+
+        possible_conflicts = {}
+        seen_champs = set()
+        for index, (champ_id, champ_name) in enumerate(best_matches):
+            if champ_id not in possible_conflicts:
+                possible_conflicts[champ_id] = []
+            possible_conflicts[champ_id].append((index, similarities[index], champ_name))
+            seen_champs.add(champ_id)
+
+        missing_champ = None
+        for champ_id, champ_name in active_champs:
+            if champ_id not in seen_champs:
+                missing_champ = champ_id, champ_name
+
+        for champ_id in possible_conflicts:
+            data = possible_conflicts[champ_id]
+            if len(data) == 2:
+                config.log(
+                    (
+                        f"CONFILICTS IN CHAMPIONS! {data[0][2]} present twice, " +
+                        f"{missing_champ[1]} missing."
+                    ),
+                    config.LOG_WARNING
+                )
+                max_similarity = 0
+                max_similarity_index = 0
+                for index, similarities, champ_name in data:
+                    if max(similarities) > max_similarity:
+                        max_similarity = max(similarities)
+                        max_similarity_index = index
+
+                for index, similarities, champ_name in data:
+                    if index == max_similarity_index:
+                        best_matches[index] = (champ_id, champ_name)
+                    else:
+                        best_matches[index] = missing_champ
+                config.log("Fixed champion conflicts!")
+            elif len(data) > 2:
+                config.log("Too many champion conflicts, can't fix!", config.LOG_ERROR)
 
         return best_matches
 
@@ -317,7 +359,7 @@ class GameState:
                 )
                 similarities.append(similarity)
 
-        best_matches = get_best_matches(similarities, item_ids)
+        best_matches = get_best_matches(similarities, item_ids, True)
         names = [
             self.game_data.get_item_name(item_id) for item_id in best_matches
         ]
@@ -415,7 +457,7 @@ class GameState:
             team_key = "blue" if participant["teamId"] == 100 else "red"
             player_index = 0
             for index, (champ_id, champ_name) in enumerate(champion_data):
-                if participant["championId"] == champ_id:
+                if int(participant["championId"]) == champ_id:
                     player_index = index
                     break
 
@@ -460,8 +502,10 @@ class TestGameData(GameData):
         self.champions = []
         if test_image_index == 1:
             self.champions = [85, 234, 777, 21, 412, 875, 102, 38, 360, 53]
-        else:
+        elif test_image_index == 4:
             self.champions = [122, 517, 142, 51, 412, 111, 104, 7, 360, 63]
+        elif test_image_index == 5:
+            self.champions = [223, 141, 4, 360, 432, 98, 11, 236, 53, 61]
 
     def get_active_game_data(self):
         return {
@@ -510,7 +554,7 @@ class TestGameData(GameData):
         }
 
 if __name__ == "__main__":
-    test_img_index = 4
+    test_img_index = 5
     img = cv2.imread(f"test_data/frame_{test_img_index}.png", cv2.IMREAD_COLOR)
     champion_data = TestGameData(test_img_index)
     digit_classifier = DigitClassifier()

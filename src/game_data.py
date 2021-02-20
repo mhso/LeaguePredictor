@@ -12,6 +12,9 @@ class GameData:
         self.champ_portraits_path = "data/champion_portraits"
         self.item_icons_path = "data/item_icons"
         self.riot_api_key = json.load(open("data/auth.json", encoding="utf-8"))["riotAPIKey"]
+        self.champ_names = {}
+        self.item_names = {}
+
         if not os.path.exists(self.get_meta_file_path("champion")):
             self.download_latest_meta_file("champion")
             self.download_champion_portraits()
@@ -20,6 +23,9 @@ class GameData:
             self.download_item_icons()
         if not os.path.exists(self.get_meta_file_path("summoner")):
             self.download_latest_meta_file("summoner")
+
+        self._cache_champ_names()
+        self._cache_item_names()
 
     def get_latest_patch(self):
         url = "https://ddragon.leagueoflegends.com/api/versions.json"
@@ -91,21 +97,14 @@ class GameData:
             print(f"Exception when getting active game from Riot API!")
             print(exc)
 
+    def get_champion_ids(self):
+        return self.champ_names.keys()
+
     def get_champion_names(self):
-        with open(self.get_meta_file_path("champion"), encoding="utf-8") as fp:
-            champ_data = json.load(fp)
-            names = []
-            for champ_name in champ_data["data"]:
-                names.append(champ_name)
-            return names
+        return self.champ_names.values()
 
     def get_champ_name(self, champ_id):
-        with open(self.get_meta_file_path("champion"), encoding="utf-8") as fp:
-            champ_data = json.load(fp)
-            for champ_name in champ_data["data"]:
-                if int(champ_data["data"][champ_name]["key"]) == champ_id:
-                    return champ_name
-        return None
+        return self.champ_names.get(champ_id)
 
     def download_champion_portraits(self):
         champ_names = self.get_champion_names()
@@ -122,20 +121,13 @@ class GameData:
         return imread(f"{self.champ_portraits_path}/{champ_name}.png", IMREAD_COLOR)
 
     def get_item_ids(self):
-        with open(self.get_meta_file_path("item"), encoding="utf-8") as fp:
-            item_data = json.load(fp)
-            return list(item_data["data"].keys())
+        return self.item_names.keys()
 
     def get_item_name(self, item_id):
         if item_id == -1: # Lack of any item.
             return "Nothing"
 
-        with open(self.get_meta_file_path("item"), encoding="utf-8") as fp:
-            item_data = json.load(fp)
-            for i_id in item_data["data"]:
-                if i_id == item_id:
-                    return item_data["data"][i_id]["name"]
-        return None
+        return self.item_names.get(item_id)
 
     def download_item_icons(self):
         item_ids = self.get_item_ids()
@@ -153,3 +145,17 @@ class GameData:
 
     def get_no_item_icon(self):
         return imread("data/empty_icon.png", IMREAD_COLOR)
+
+    def _cache_champ_names(self):
+        with open(self.get_meta_file_path("champion"), encoding="utf-8") as fp:
+            champ_data = json.load(fp)
+            for champ_name in champ_data["data"]:
+                name = champ_data["data"][champ_name]["name"]
+                key = champ_data["data"][champ_name]["key"]
+                self.champ_names[int(key)] = name
+
+    def _cache_item_names(self):
+        with open(self.get_meta_file_path("item"), encoding="utf-8") as fp:
+            item_data = json.load(fp)
+            for item_id in item_data["data"]:
+                self.item_names[int(item_id)] = item_data["data"][item_id]["name"]
