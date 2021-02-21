@@ -13,7 +13,11 @@ class GameData:
         self.item_icons_path = "data/item_icons"
         self.riot_api_key = json.load(open("data/auth.json", encoding="utf-8"))["riotAPIKey"]
         self.champ_names = {}
+        self.champ_index = {}
         self.item_names = {}
+        self.item_index = {}
+        self.summ_names = {}
+        self.summ_index = {}
 
         if not os.path.exists(self.get_meta_file_path("champion")):
             self.download_latest_meta_file("champion")
@@ -24,8 +28,9 @@ class GameData:
         if not os.path.exists(self.get_meta_file_path("summoner")):
             self.download_latest_meta_file("summoner")
 
-        self._cache_champ_names()
-        self._cache_item_names()
+        self._cache_champ_data()
+        self._cache_item_data()
+        self._cache_summoners_data()
 
     def get_latest_patch(self):
         url = "https://ddragon.leagueoflegends.com/api/versions.json"
@@ -106,6 +111,18 @@ class GameData:
     def get_champ_name(self, champ_id):
         return self.champ_names.get(champ_id)
 
+    def get_champion_index(self, champ_id):
+        return self.champ_index[champ_id]
+
+    def get_summoner_spell_ids(self):
+        return self.summ_names.keys()
+
+    def get_summoner_spell_name(self, summ_id):
+        return self.summ_names[summ_id]
+
+    def get_summoner_spell_index(self, summ_id):
+        return self.summ_index[summ_id]
+
     def download_champion_portraits(self):
         champ_names = self.get_champion_names()
         champ_portrait_files = glob(f"{self.champ_portraits_path}/*.png")
@@ -129,6 +146,9 @@ class GameData:
 
         return self.item_names.get(item_id)
 
+    def get_item_index(self, item_id):
+        return self.item_index[item_id]
+
     def download_item_icons(self):
         item_ids = self.get_item_ids()
         item_icon_files = glob(f"{self.item_icons_path}/*.png")
@@ -146,16 +166,27 @@ class GameData:
     def get_no_item_icon(self):
         return imread("data/empty_icon.png", IMREAD_COLOR)
 
-    def _cache_champ_names(self):
+    def _cache_champ_data(self):
         with open(self.get_meta_file_path("champion"), encoding="utf-8") as fp:
             champ_data = json.load(fp)
-            for champ_name in champ_data["data"]:
+            for index, champ_name in enumerate(champ_data["data"]):
                 name = champ_data["data"][champ_name]["name"]
-                key = champ_data["data"][champ_name]["key"]
-                self.champ_names[int(key)] = name
+                key = int(champ_data["data"][champ_name]["key"])
+                self.champ_names[key] = name
+                self.champ_index[key] = index
 
-    def _cache_item_names(self):
+    def _cache_item_data(self):
         with open(self.get_meta_file_path("item"), encoding="utf-8") as fp:
             item_data = json.load(fp)
-            for item_id in item_data["data"]:
-                self.item_names[int(item_id)] = item_data["data"][item_id]["name"]
+            for index, item_id in enumerate(item_data["data"]):
+                item_id_num = int(item_id)
+                self.item_names[item_id_num] = item_data["data"][item_id]["name"]
+                self.item_index[item_id_num] = index
+
+    def _cache_summoners_data(self):
+        with open(self.get_meta_file_path("summoner"), encoding="utf-8") as fp:
+            summ_data = json.load(fp)
+            for index, summ_name in enumerate(summ_data["data"]):
+                key = int(summ_data["data"][summ_name]["key"])
+                self.summ_names[key] = summ_data["data"][summ_name]["name"]
+                self.summ_index[key] = index

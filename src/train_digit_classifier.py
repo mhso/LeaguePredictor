@@ -52,10 +52,8 @@ if config.TRAIN_WITH_GPU:
 
 optimizer = digit_classifier.get_optimizer(model)
 
-x_train, y_train, x_test, y_test = digit_dataset.get_data(digit_classifier.VALIDATION_SPLIT)
-
-dataloaders = digit_dataset.create_dataloaders_dict(
-    digit_classifier.BATCH_SIZE, x_train, y_train, x_test, y_test
+dataloaders = digit_dataset.get_data(
+    digit_classifier.BATCH_SIZE, digit_classifier.VALIDATION_SPLIT
 )
 
 if len(argv) == 1:
@@ -65,7 +63,7 @@ if len(argv) == 1:
 epochs = int(argv[1])
 
 print((
-    f"Training on {len(x_train)} training samples ({len(x_test)} " +
+    f"Training on {len(dataloaders.dataset['train'])} training samples ({len(dataloaders.dataset['val'])} " +
     f"validation samples) for {epochs} epochs."
 ))
 

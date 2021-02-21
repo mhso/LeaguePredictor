@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 import torch
 import config
-from classifier.dataset import Data, create_dataloaders_dict
+from classifier.dataset import create_dataloaders_dict, split_data
 
 def shape_input(images):
     if not isinstance(images, list):
@@ -39,7 +39,7 @@ def reshape_img(image):
         reshaped = reshaped / 255
     return reshaped
 
-def get_data(validation_split):
+def get_data(batch_size, validation_split):
     data_x = []
     data_y = []
     for digit in range(10):
@@ -53,19 +53,9 @@ def get_data(validation_split):
 
     assert len(data_x) == len(data_y)
 
-    shuffle_seed = 2042
-    np.random.seed(shuffle_seed)
-    np.random.shuffle(data_x)
-    np.random.seed(shuffle_seed)
-    np.random.shuffle(data_y)
+    x_train, y_train, x_test, y_test = split_data(data_x, data_y, validation_split)
 
-    split_index = int(len(data_x) * validation_split)
-    x_train = np.array(data_x[:split_index], dtype="float32")
-    y_train = np.array(data_y[:split_index], dtype="int64")
-    x_test = np.array(data_x[split_index:], dtype="float32")
-    y_test = np.array(data_y[split_index:], dtype="int64")
-
-    return x_train, y_train, x_test, y_test
+    return create_dataloaders_dict(batch_size, x_train, y_train, x_test, y_test)
 
 if __name__ == "__main__":
     data = get_data(0.7)
