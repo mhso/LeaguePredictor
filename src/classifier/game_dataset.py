@@ -1,226 +1,159 @@
 from glob import glob
 from time import time
-import multiprocessing
-import json
-from json.decoder import JSONDecodeError
 import numpy as np
-if __name__ == "__main__":
-    import torch
+import torch
+from torch.utils.data import Dataset, DataLoader
+from classifier.game_dataset_util import load_data_in_parallel, sparse_onehot_indices
 import config
-from game_data import GameData
 
-def group_data(files, game_data_handler):
-    data_dict = {}
+DATA_PATH = "data/training_data/labeled_games"
 
-    for filename in files:
-        name_split = filename.replace("\\", "/").split("/")[-1].split(".")[0].split("_")
-        match_id = int(name_split[0])
-        type = name_split[1]
-        if match_id not in data_dict:
-            data_dict[match_id] = []
+def create_sparse_tensor(indices_x, values, size):
+    indices_z = []
+    indices_y = []
+    for team_index in range(2):
+        for player_index in range(5):
+            indices_z.extend([team_index for _ in range(len(values) // 10)])
+            indices_y.extend([player_index for _ in range(len(values) // 10)])                
 
-        data_dict[match_id].append((type, filename))
+    sparse_tensor = torch.sparse.FloatTensor(
+        torch.LongTensor([indices_z, indices_y, indices_x]),
+        torch.FloatTensor(values),
+        torch.Size(size)
+    )
+    return sparse_tensor
 
-    champ_indices = game_data_handler.champ_index
-    item_indices = game_data_handler.item_index
-    summ_indices = game_data_handler.summ_index
+class Data(Dataset):
+    def __init__(self, game_files, load_processes):
+        self.files = []
+        self.indices = {}
+        self.x = []
+        self.y = []
+        self.x_index = 0
+        self.data = load_data_in_parallel(game_files, load_processes)
 
-    grouped_data = []
-    for match_id in data_dict:
-        if len(data_dict[match_id]) == 2:
-            type_1, datapoint_1 = data_dict[match_id][0]
-            _, datapoint_2 = data_dict[match_id][1]
+        self.size = len(self.data)#data_index + 1
 
-            if type_1 == "match":
-                tup = (datapoint_1, datapoint_2)
-            else:
-                tup = (datapoint_2, datapoint_1)
+    def __len__(self):
+        return self.size
 
-            tup = tup + (champ_indices, item_indices, summ_indices)
+    def __getitem__(self, index):
+        data_entry = self.data[index]
+        size = list(config.GAME_INPUT_DIM)
+        return create_sparse_tensor(data_entry[0], data_entry[1], size), data_entry[2]
 
-            grouped_data.append(tup)
+def create_dataloaders_dict(batch_size, files_train, files_test):
+    datasets = {}
+    load_processes = 32
+    config.log(f"Loading training data in parallel across {load_processes} processes...")
+    datasets['train'] = Data(files_train, load_processes)
+    config.log(f"Loading validation data in parallel across {load_processes} processes...")
+    datasets['val'] = Data(files_test, load_processes)
+    dataloaders = {
+        x: DataLoader(
+            datasets[x],
+            batch_size=batch_size,
+            shuffle=True,
+            drop_last=True
+        ) for x in ('train', 'val')
+    }
+    return dataloaders
 
-    return grouped_data
+def split_data(files, validation_split, seed=2042):
+    np.random.seed(seed)
+    np.random.shuffle(files)
 
-def shape_input(data):
-    return data
+    split_index = int(len(files) * validation_split)
+    files_train = files[:split_index]
+    files_test = files[split_index:]
 
-def get_data_from_file(data_for_file):
-    (match_file, timeline_file,
-     champ_indices, item_indices, summ_indices) = data_for_file
-    try:
-        with open(match_file, encoding="utf-8") as match_fp:
-            match_data = json.load(match_fp)
-        with open(timeline_file, encoding="utf-8") as timeline_fp:
-            timeline_data = json.load(timeline_fp)
+    return files_train, files_test
 
-        if match_data["gameDuration"] < 60 * 5:
-            return None # The match was a remake.
+def normalize(value, total):
+    return value / total if total > 0 else 0
 
-        team_ids = [0 for _ in range(10)]
-        item_ids = [set() for _ in range(10)]
-        kills = [0 for _ in range(10)]
-        assists = [0 for _ in range(10)]
-        deaths = [0 for _ in range(10)]
-        deaths = [0 for _ in range(10)]
-        towers = [0 for _ in range(2)]
-        dragon_ids = ["FIRE_DRAGON", "WATER_DRAGON", "EARTH_DRAGON", "AIR_DRAGON"]
-        dragons = [[0, 0, 0, 0] for _ in range(2)]
-        champion_ids = [0 for _ in range(10)]
-        summoners_ids = [[0, 0] for _ in range(10)]
+def shape_input(data, game_data_handler):
+    total_kills = 0
+    total_deaths = 0
+    total_assists = 0
+    total_towers = 0
+    total_cs = 0
+    num_champs = len(game_data_handler.champ_index)
+    num_items = len(game_data_handler.item_index)
+    num_summs = len(game_data_handler.summ_index)
 
-        for participantData in match_data["participants"]:
-            player_id = participantData["participantId"] - 1
-            team_ids[player_id] = 0 if participantData["teamId"] == 100 else 1
-            champion_ids[player_id] = champ_indices[participantData["championId"]]
+    for team_key in ("blue", "red"):
+        for index, player_data in enumerate(data[team_key]["players"]):
+            total_kills += player_data["kills"]
+            total_deaths += player_data["deaths"]
+            total_assists += player_data["assists"]
+            total_cs += player_data["cs"]
 
-            summoners_ids[player_id][0] = participantData["spell1Id"]
-            summoners_ids[player_id][1] = participantData["spell2Id"]
-            # summoners_ids[player_id] = [
-            #     summoners_ids[participantData["spell1Id"]], summoners_ids[participantData["spell2Id"]]
-            # ]
+        total_towers += data[team_key]["towers_destroyed"]
 
-        data = []
+    player_data = [[] for _ in range(2)]
+    champ_data = [[] for _ in range(2)]
+    summ_data = [[] for _ in range(2)]
+    item_data = [[] for _ in range(2)]
+    team_data = [[] for _ in range(2)]
 
-        # Insert data for each data frame.
-        for frame in timeline_data["frames"]:
-            data_frame = [[] for _ in range(2)]
+    reshaped = []
+    for team_key in ("blue", "red"):
+        team_id = 0 if team_key == "blue" else 1
 
-            for eventData in frame["events"]:
-                if eventData["type"] == "CHAMPION_KILL":
-                    killer_id = eventData["killerId"] - 1
-                    dead_id = eventData["victimId"] - 1
-                    assisting_ids = eventData["assistingParticipantIds"]
-                    kills[killer_id] += 1
-                    for assist_id in assisting_ids:
-                        assists[assist_id - 1] += 1
-                    deaths[dead_id] += 1
-                elif eventData["type"] == "BUILDING_KILL":
-                    killer_id = eventData["killerId"] - 1
-                    team_id = team_ids[killer_id]
-                    towers[team_id] += 1
-                elif eventData["type"] == "ELITE_MONSTER_KILL" and eventData["monsterType"] == "DRAGON" and eventData["monsterSubType"] in dragon_ids:
-                    dragon_type = eventData["monsterSubType"]
-                    killer_id = eventData["killerId"] - 1
-                    team_id = team_ids[killer_id]
-                    dragon_id = dragon_ids.index(dragon_type)
-                    dragons[team_id][dragon_id] += 1
-                elif eventData["type"] == "ITEM_PURCHASED":
-                    item_id = item_indices.get(eventData["itemId"], 0)
-                    if item_id in (132, 133, 134):
-                        for trinket_id in (132, 133, 134):
-                            if trinket_id in item_ids[player_id]:
-                                item_ids[player_id].remove(trinket_id)
+        for index, data_for_player in enumerate(data[team_key]["players"]):
+            player_data[team_id].append([
+                normalize(data_for_player["level"], 18),
+                normalize(data_for_player["kills"], total_kills),
+                normalize(data_for_player["deaths"], total_deaths),
+                normalize(data_for_player["assists"], total_assists),
+                normalize(data_for_player["cs"], total_cs)
+            ])
+            champ_data[team_id].append(data_for_player["champ_id"])
+            summ_data[team_id].append([
+                data_for_player["summ_spell_id_1"], data_for_player["summ_spell_id_2"]
+            ])
 
-                    player_id = eventData["participantId"] - 1
-                    item_ids[player_id].add(item_id)
-                elif eventData["type"] in ("ITEM_SOLD", "ITEM_DESTROYED"):
-                    player_id = eventData["participantId"] - 1
-                    item_id = item_indices.get(eventData["itemId"], 0)
-                    if item_id in item_ids[player_id]:
-                        item_ids[player_id].remove(item_id)
-                elif eventData["type"] == "ITEM_UNDO":
-                    player_id = eventData["participantId"] - 1
-                    item_to_add = eventData["afterId"]
-                    if item_to_add != 0:
-                        item_ids[player_id].add(item_indices.get(item_to_add, 0))
+            item_data[team_id].append(data_for_player["item_ids"])
 
-                    item_to_remove = eventData["beforeId"]
-                    if item_to_remove != 0:
-                        item_id = item_indices[item_to_remove]
-                        if item_id in item_ids[player_id]:
-                            item_ids[player_id].remove(item_id)
+        normed_dragons = [
+            normalize(count, 4) for count in data[team_key]["dragons"]
+        ]
+        team_data[team_id] = (
+            [normalize(data[team_key]["towers_destroyed"], total_towers)] + normed_dragons
+        )
 
-            for participantKey in frame["participantFrames"]:
-                participantData = frame["participantFrames"][participantKey]
-                player_id = participantData["participantId"] - 1
-                team_id = team_ids[player_id]
-                cs = participantData["minionsKilled"] + participantData["jungleMinionsKilled"]
+    len_matrix = num_summs + num_champs + num_items + 10
+    lengths = num_summs, num_champs, num_items, len_matrix
+    matrix_data = (player_data, champ_data, item_data, summ_data, team_data)
+    indices_x, values = sparse_onehot_indices(matrix_data, lengths)
+    size = list(config.GAME_INPUT_DIM)
 
-                player_data = []
-                player_data.extend([
-                    champion_ids[player_id], participantData["level"],
-                    summoners_ids[player_id][0], summoners_ids[player_id][1],
-                ])
+    reshaped = create_sparse_tensor(indices_x, values, size)
 
-                if len(item_ids[player_id]) > 7:
-                    if 34 in item_ids[player_id]:
-                        item_ids[player_id].remove(34) # Remove Control Ward.
-                    if 134 in item_ids[player_id]:
-                        item_ids[player_id].remove(134) # Remove Oracle Lens.
-                    if 133 in item_ids[player_id]:
-                        item_ids[player_id].remove(133) # Remove Farsight Alteration.
+    # assert len(reshaped) == 2
+    # for player_data in reshaped:
+    #     assert len(player_data) == 6
+    #     for type_data in player_data:
+    #         assert len(type_data) == 15
 
-                player_data.extend(item_ids[player_id])
-                if len(item_ids[player_id]) < 7:
-                    player_data.extend([0 for _ in range(7 - len(item_ids[player_id]))])
-
-                player_data.extend([
-                    kills[player_id], assists[player_id], deaths[player_id], cs
-                ])
-                if len(player_data) != 15:
-                    print(f"Invalid player data: {player_data}", flush=True)
-                data_frame[team_id].append(player_data)
-    
-            for team_id, towers_destroyed in enumerate(towers):
-                data_for_team = [towers_destroyed] + dragons[team_id] + [0 for _ in range(10)]
-                if len(data_for_team) != 15:
-                    print(f"Invalid team data: {data_for_team}", flush=True)
-                data_frame[team_id].append(data_for_team)
-
-            data.append(data_frame)
-
-        team_data = match_data["teams"]
-        blue_won = int(not ((team_data[0]["teamId"] == 100) ^ (team_data[0]["win"] == "Win")))
-
-        return [data, blue_won]
-    except JSONDecodeError as exc:
-        print(match_file)
-        raise exc
+    return reshaped.to_dense().view([1] + size)
 
 def get_data(batch_size, validation_split):
-    game_data_handler = GameData()
-
-    files = glob(f"data/training_data/games/*.json")
+    files = glob(f"{DATA_PATH}/*.csv")
 
     config.log(f"Game files: {len(files)}")
 
-    grouped_data = group_data(files, game_data_handler)
-
-    config.log(f"Complete game files: {len(grouped_data)}")
-
     time_start = time()
 
-    data_processes = 8
-    with multiprocessing.Pool(processes=data_processes) as pool:
-        config.log(f"Loading game data in parallel across {data_processes} processes...")
-        data = pool.map(get_data_from_file, grouped_data)
-
-    data_x = []
-    data_y = []
-    for game_data in data:
-        if game_data is not None:
-            data_x.extend(game_data[0])
-            data_y.extend([game_data[1] for _ in range(len(game_data[0]))])
-
-    config.log(f"Loaded {len(data_x)} datapoints in {time() - time_start:.2f} seconds.")
-
-    assert len(data_x) == len(data_y)
-
-    for team_data in data_x:
-        assert len(game_data) == 2
-        for player_data in team_data:
-            assert len(player_data) == 6
-            for type_data in player_data:
-                assert len(type_data) == 15
-
-    config.log(f"Data has been validated and is well formed.")
-
-    from classifier.dataset import create_dataloaders_dict, split_data
-
     config.log(f"Shuffling and splitting data...")
-    x_train, y_train, x_test, y_test = split_data(data_x, data_y, validation_split)
+    time_start = time()
+
+    files_train, files_test = split_data(files, validation_split)
+
+    duration = time() - time_start
+    config.log(f"Done in {duration:.2f} seconds.")
 
     config.log(f"Creating data loaders...")
 
-    return create_dataloaders_dict(batch_size, x_train, y_train, x_test, y_test)
+    return create_dataloaders_dict(batch_size, files_train, files_test)

@@ -1,10 +1,23 @@
 dim_1 = games (?)
 dim_2 = teams (2)
 dim_3 = players (5) + team_data (1)
-dim_4 = data for player (16)
+dim_4 = data for player (15)
 
 player_data = [champ_id (1) + summoner_spells (2) + level (1) + items (7) + kda (3) + cs (1)
 
 team_data = [turrets_destroyed (1) + dragons (4) + padding (10)]
 
-batch x 2 x 6 x 16
+batch x 2 x 6 x 15
+
+level + kda + cs 5 x 1
+data = 5 x 369
+towers, dragons = 5 x 1
+
+all_data = 2 x 5 x 371
+
+[level, k, d, a, cs, ss_1, ss_2, ..., ss_14, champ_1, champ_2, ..., champ_154, item_1, item_2, ..., item_202, towers]
+   0    1  2  3   4    5     6   ...    18,     19,     20,    ...,    172,     173,    174,   ...,   374,     375
+
+154 champs
+202 items
+14 summoner spells

@@ -13,6 +13,7 @@ class GameData:
         self.item_icons_path = "data/item_icons"
         self.riot_api_key = json.load(open("data/auth.json", encoding="utf-8"))["riotAPIKey"]
         self.champ_names = {}
+        self.champ_handles = {}
         self.champ_index = {}
         self.item_names = {}
         self.item_index = {}
@@ -103,19 +104,25 @@ class GameData:
             print(exc)
 
     def get_champion_ids(self):
-        return self.champ_names.keys()
+        return list(self.champ_names.keys())
 
     def get_champion_names(self):
-        return self.champ_names.values()
+        return list(self.champ_names.values())
+
+    def get_champion_handles(self):
+        return list(self.champ_handles.values())
 
     def get_champ_name(self, champ_id):
         return self.champ_names.get(champ_id)
+
+    def get_champ_handle(self, champ_id):
+        return self.champ_handles.get(champ_id)
 
     def get_champion_index(self, champ_id):
         return self.champ_index[champ_id]
 
     def get_summoner_spell_ids(self):
-        return self.summ_names.keys()
+        return list(self.summ_names.keys())
 
     def get_summoner_spell_name(self, summ_id):
         return self.summ_names[summ_id]
@@ -124,7 +131,7 @@ class GameData:
         return self.summ_index[summ_id]
 
     def download_champion_portraits(self):
-        champ_names = self.get_champion_names()
+        champ_names = self.get_champion_handles()
         champ_portrait_files = glob(f"{self.champ_portraits_path}/*.png")
         portrait_names = [
             x.replace("\\", "/").split("/")[-1].split(".")[0]
@@ -135,19 +142,19 @@ class GameData:
                 self.download_champion_portrait(champ_name)
 
     def get_champion_portrait(self, champ_name):
-        return imread(f"{self.champ_portraits_path}/{champ_name}.png", IMREAD_COLOR)
+        return imread(f"{self.champ_portraits_path}/{champ_name.replace(' ', '')}.png", IMREAD_COLOR)
 
     def get_item_ids(self):
-        return self.item_names.keys()
+        return list(self.item_names.keys())
 
     def get_item_name(self, item_id):
         if item_id == -1: # Lack of any item.
-            return "Nothing"
+            return self.item_names[0]
 
         return self.item_names.get(item_id)
 
     def get_item_index(self, item_id):
-        return self.item_index[item_id]
+        return self.item_index.get(item_id, 0)
 
     def download_item_icons(self):
         item_ids = self.get_item_ids()
@@ -161,6 +168,8 @@ class GameData:
                 self.download_item_icon(item_id)
 
     def get_item_icon(self, icon_id):
+        if icon_id == 0:
+            return self.get_no_item_icon()
         return imread(f"{self.item_icons_path}/{icon_id}.png", IMREAD_COLOR)
 
     def get_no_item_icon(self):
@@ -173,12 +182,15 @@ class GameData:
                 name = champ_data["data"][champ_name]["name"]
                 key = int(champ_data["data"][champ_name]["key"])
                 self.champ_names[key] = name
+                self.champ_handles[key] = champ_name
                 self.champ_index[key] = index
 
     def _cache_item_data(self):
         with open(self.get_meta_file_path("item"), encoding="utf-8") as fp:
             item_data = json.load(fp)
-            for index, item_id in enumerate(item_data["data"]):
+            self.item_names[0] = "Nothing"
+            self.item_index[0] = 0
+            for index, item_id in enumerate(item_data["data"], start=1):
                 item_id_num = int(item_id)
                 self.item_names[item_id_num] = item_data["data"][item_id]["name"]
                 self.item_index[item_id_num] = index

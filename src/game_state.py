@@ -5,7 +5,7 @@ from win32 import win32gui
 from game_data import GameData, MY_SUMM_ID
 from classifier.digit_classifier import DigitClassifier
 from features import feature_extraction
-from classifier import digit_dataset
+from classifier import digit_dataset, game_dataset
 import config
 
 TEST = True
@@ -48,7 +48,7 @@ def get_item_icons(img):
         for y_index in range(5):
             icons_for_champ = []
             y = y_start + y_index * y_step
-            for x_index in range(6):
+            for x_index in range(7):
                 x = x_start + x_index * x_step
                 y_2 = y + icon_h
                 x_2 = x + icon_w
@@ -83,7 +83,7 @@ def get_average_colors(img):
     return tuple(x / total_pixels for x in acc_colors)
 
 def determine_dragon(avg_r, avg_g, avg_b):
-    if sum((avg_r, avg_g, avg_b)) < 50:
+    if sum((avg_r, avg_g, avg_b)) < 100:
         return 0 # No dragon.
 
     search_values = [
@@ -270,7 +270,7 @@ class GameState:
         for participant in self.active_game_data["participants"]:
             champ_names.append((
                 participant["championId"],
-                self.game_data.get_champ_name(participant["championId"])
+                self.game_data.get_champ_handle(participant["championId"])
             ))
         return champ_names
 
@@ -344,8 +344,6 @@ class GameState:
             self.game_data.get_item_icon(item_id)
             for item_id in item_ids
         ]
-        item_ids.append(-1)
-        actual_icons.append(self.game_data.get_no_item_icon())
 
         def transform(actual_img, captured_img):
             smaller_size = tuple(s for s in captured_img.shape[:2])
@@ -366,10 +364,10 @@ class GameState:
 
         items_per_player = []
         for index in range(10):
-            item_index = index * 6
+            item_index = index * 7
             items_per_player.append((
-                best_matches[item_index:item_index+6],
-                names[item_index:item_index+6],
+                best_matches[item_index:item_index+7],
+                names[item_index:item_index+7],
             ))
 
         return items_per_player
@@ -468,12 +466,18 @@ class GameState:
 
             k, d, a = player_scores[player_index]
 
+            champ_index = self.game_data.get_champion_index(champion_data[player_index][0])
+            item_indices = [
+                self.game_data.get_item_index(item_id)
+                for item_id in item_data[player_index][0]
+            ]
+
             data_for_player = {
-                "champ_id": champion_data[player_index][0],
+                "champ_id": champ_index,
                 "champ_name": champion_data[player_index][1],
                 "summ_spell_id_1": participant["spell1Id"],
                 "summ_spell_id_2": participant["spell2Id"],
-                "item_ids": item_data[player_index][0],
+                "item_ids": item_indices,
                 "item_names": item_data[player_index][1],
                 "level": player_levels[player_index],
                 "kills": k, "deaths": d, "assists": a,
@@ -489,80 +493,118 @@ class GameState:
 
         for team_key in team_index:
             index = team_index[team_key]
-            game_data[team_key]["dragons"] = dragons[index]
+            dragon_vector = [0, 0, 0, 0]
+            for dragon_id in dragons[index]:
+                if dragon_id > 0:
+                    dragon_vector[dragon_id-1] += 1
+            game_data[team_key]["dragons"] = dragon_vector
             game_data[team_key]["towers_destroyed"] = towers_destroyed[index]
 
-        game_data["my_team"] = my_team
-
-        return (GameState.GAME_IN_PROGRESS, game_data)
+        return (GameState.GAME_IN_PROGRESS, (game_data, my_team))
 
 class TestGameData(GameData):
     def __init__(self, test_image_index):
         super().__init__()
         self.champions = []
+        self.summs = [
+            (12, 4), (4, 11), (4, 14), (4, 7), (4, 14),
+            (4, 12), (4, 11), (4, 12), (3, 4), (14, 4)
+        ]
+        self.summ_ids = [f"Dude {index+1}" for index in range(10)]
         if test_image_index == 1:
             self.champions = [85, 234, 777, 21, 412, 875, 102, 38, 360, 53]
+            self.summ_ids[2] = MY_SUMM_ID
         elif test_image_index == 4:
             self.champions = [122, 517, 142, 51, 412, 111, 104, 7, 360, 63]
+            self.summ_ids[7] = MY_SUMM_ID
         elif test_image_index == 5:
             self.champions = [223, 141, 4, 360, 432, 98, 11, 236, 53, 61]
+            self.summ_ids[3] = MY_SUMM_ID
+        elif test_image_index == 7:
+            self.champions = [106, 69, 54, 110, 350, 8, 63, 81, 104, 89]
+            self.summs = [
+                (4, 6), (4, 1), (14, 4), (4, 3), (4, 3),
+                (21, 4), (21, 4), (14, 4), (4, 21), (14, 4)
+            ]
+            self.summ_ids[1] = MY_SUMM_ID
+        elif test_image_index == 8:
+            self.champions = [34, 23, 10, 21, 19, 223, 876, 62, 235, 86]
+            self.summs = [
+                (4, 21), (4, 3), (4, 3), (1, 4), (4, 6),
+                (4, 6), (4, 7), (14, 4), (4, 6), (4, 3)
+            ]
+            self.summ_ids[6] = MY_SUMM_ID
 
     def get_active_game_data(self):
         return {
             "participants": [
                 {
-                    "championId": self.champions[0], "teamId": 100, "summonerId": "Dude1",
-                    "spell1Id": "SummonerTeleport", "spell2Id": "SummonerFlash"
+                    "championId": self.champions[0], "teamId": 100, "summonerId": self.summ_ids[0],
+                    "spell1Id": self.get_summoner_spell_index(self.summs[0][0]), # Teleport
+                    "spell2Id": self.get_summoner_spell_index(self.summs[0][1]) # Flash
                 },
                 {
-                    "championId": self.champions[1], "teamId": 100, "summonerId": "Dude1",
-                    "spell1Id": "SummonerFlash", "spell2Id": "SummonerSmite"
+                    "championId": self.champions[1], "teamId": 100, "summonerId": self.summ_ids[1],
+                    "spell1Id": self.get_summoner_spell_index(self.summs[1][0]), # Flash
+                    "spell2Id": self.get_summoner_spell_index(self.summs[1][1]) # Smite
                 },
                 {
-                    "championId": self.champions[2], "teamId": 100, "summonerId": MY_SUMM_ID,
-                    "spell1Id": "SummonerFlash", "spell2Id": "SummonerIgnite"
+                    "championId": self.champions[2], "teamId": 100, "summonerId": self.summ_ids[2],
+                    "spell1Id": self.get_summoner_spell_index(self.summs[2][0]), # Flash
+                    "spell2Id": self.get_summoner_spell_index(self.summs[2][1]) # Ignite
                 },
                 {
-                    "championId": self.champions[3], "teamId": 100, "summonerId": "Dude3",
-                    "spell1Id": "SummonerFlash", "spell2Id": "SummonerHeal"
+                    "championId": self.champions[3], "teamId": 100, "summonerId": self.summ_ids[3],
+                    "spell1Id": self.get_summoner_spell_index(self.summs[3][0]), # Flash
+                    "spell2Id": self.get_summoner_spell_index(self.summs[3][1]) # Heal
                 },
                 {
-                    "championId": self.champions[4], "teamId": 100, "summonerId": "Dude4",
-                    "spell1Id": "SummonerFlash", "spell2Id": "SummonerIgnite"
+                    "championId": self.champions[4], "teamId": 100, "summonerId": self.summ_ids[4],
+                    "spell1Id": self.get_summoner_spell_index(self.summs[4][0]), # Flash
+                    "spell2Id": self.get_summoner_spell_index(self.summs[4][1]) # Ignite
                 },
                 {
-                    "championId": self.champions[5], "teamId": 200, "summonerId": "Dude5",
-                    "spell1Id": "SummonerFlash", "spell2Id": "SummonerTeleport"
+                    "championId": self.champions[5], "teamId": 200, "summonerId": self.summ_ids[5],
+                    "spell1Id": self.get_summoner_spell_index(self.summs[5][0]), # Flash
+                    "spell2Id": self.get_summoner_spell_index(self.summs[5][1]) # Teleport
                 },
                 {
-                    "championId": self.champions[6], "teamId": 200, "summonerId": "Dude6",
-                    "spell1Id": "SummonerFlash", "spell2Id": "SummonerSmite"
+                    "championId": self.champions[6], "teamId": 200, "summonerId": self.summ_ids[6],
+                    "spell1Id": self.get_summoner_spell_index(self.summs[6][0]), # Flash
+                    "spell2Id": self.get_summoner_spell_index(self.summs[6][1]) # Smite
                 },
                 {
-                    "championId": self.champions[7], "teamId": 200, "summonerId": "Dude7",
-                    "spell1Id": "SummonerFlash", "spell2Id": "SummonerTeleport"
+                    "championId": self.champions[7], "teamId": 200, "summonerId": self.summ_ids[7],
+                    "spell1Id": self.get_summoner_spell_index(self.summs[7][0]), # Flash
+                    "spell2Id": self.get_summoner_spell_index(self.summs[7][1]) # Teleport
                 },
                 {
-                    "championId": self.champions[8], "teamId": 200, "summonerId": "Dude8",
-                    "spell1Id": "SummonerExhaust", "spell2Id": "SummonerFlash"
+                    "championId": self.champions[8], "teamId": 200, "summonerId": self.summ_ids[8],
+                    "spell1Id": self.get_summoner_spell_index(self.summs[8][0]), # Exhaust
+                    "spell2Id": self.get_summoner_spell_index(self.summs[8][1]) # Flash
                 },
                 {
-                    "championId": self.champions[9], "teamId": 200, "summonerId": "Dude9",
-                    "spell1Id": "SummonerIgnite", "spell2Id": "SummonerFlash"
+                    "championId": self.champions[9], "teamId": 200, "summonerId": self.summ_ids[9],
+                    "spell1Id": self.get_summoner_spell_index(self.summs[9][0]), # Ignite
+                    "spell2Id": self.get_summoner_spell_index(self.summs[9][1]) # Flash
                 } 
             ]
         }
 
 if __name__ == "__main__":
-    test_img_index = 5
+    test_img_index = 4
     img = cv2.imread(f"test_data/frame_{test_img_index}.png", cv2.IMREAD_COLOR)
     champion_data = TestGameData(test_img_index)
     digit_classifier = DigitClassifier()
     digit_classifier.load()
     game_state = GameState(champion_data, digit_classifier)
-    state, game_data = game_state.get_game_state(img)
-    for team in ("blue", "red"):
+    state, data = game_state.get_game_state(img)
+    game_data, my_team = data
+    for team in game_data:
         print(f"====== {team.upper()} TEAM ======")
+        print(f"Towers destroyed: {game_data[team]['towers_destroyed']}")
+        print(f"Dragons: {game_data[team]['dragons']}")
         for player_data in game_data[team]["players"]:
             print(player_data)
             print("***********************************************")
+    

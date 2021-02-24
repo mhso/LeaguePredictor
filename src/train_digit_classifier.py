@@ -1,8 +1,7 @@
 from sys import argv
 from time import time
 import torch
-from classifier import digit_classifier
-from classifier import digit_dataset
+from classifier import digit_classifier, digit_dataset
 import config
 
 def train(model, dataloaders, loss_func, optimizer, epochs):
@@ -35,9 +34,9 @@ def train(model, dataloaders, loss_func, optimizer, epochs):
                 epoch_loss = running_loss / len(dataloaders[phase].dataset)
                 epoch_acc = int((running_corrects / len(dataloaders[phase].dataset)) * 100)
                 if phase == "val":
-                    print(f"Time taken: {time() - time_before:.2f} seconds")
+                    config.log(f"Time taken: {time() - time_before:.2f} seconds")
 
-                print(f"{phase.capitalize()} Loss: {epoch_loss:.3f} - Acc: {epoch_acc}%")
+                config.log(f"{phase.capitalize()} Loss: {epoch_loss:.3f} - Acc: {epoch_acc}%")
 
         print()
     finally:
@@ -62,8 +61,8 @@ if len(argv) == 1:
 
 epochs = int(argv[1])
 
-print((
-    f"Training on {len(dataloaders.dataset['train'])} training samples ({len(dataloaders.dataset['val'])} " +
+config.log((
+    f"Training on {len(dataloaders['train'].dataset)} training samples ({len(dataloaders['val'].dataset)} " +
     f"validation samples) for {epochs} epochs."
 ))
 

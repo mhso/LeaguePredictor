@@ -1,7 +1,8 @@
 from datetime import datetime
 
 CHAR_INPUT_DIM = (3, 32, 32)
-TRAIN_WITH_GPU = False
+GAME_INPUT_DIM = (2, 5, 380)
+TRAIN_WITH_GPU = True
 
 LOG_WARNING = 1
 LOG_ERROR = 2
