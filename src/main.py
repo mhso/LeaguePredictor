@@ -1,4 +1,5 @@
 from time import sleep
+from sys import argv
 from PIL import ImageGrab
 import win32api
 import cv2
@@ -22,8 +23,8 @@ def get_game_state(game_state_handler):
     cv2_img = cv2.cvtColor(array(screenshot), cv2.COLOR_RGB2BGR)
     return game_state_handler.get_game_state(cv2_img)
 
-def get_prediction(game_classifier, game_data, game_state_handler, my_team):
-    classifier_input = shape_input(game_data, game_state_handler)
+def get_prediction(game_classifier, game_data, game_data_handler, my_team):
+    classifier_input = shape_input(game_data, game_data_handler)
     outcome = game_classifier.predict(classifier_input)
     if my_team == "red":
         outcome = 1 - outcome
@@ -47,8 +48,8 @@ while True:
             break
         if state == game_state_handler.GAME_IN_PROGRESS:
             game_data, my_team = data
-            prediction = get_prediction(game_classifier, game_data, game_state_handler, my_team)
-            print(f"Chance of win: {int(prediction * 100)}%")
+            prediction = get_prediction(game_classifier, game_data, game_data_handler, my_team)
+            print(f"Chance of win: {prediction * 100:.2f}%")
             # for team in ("blue", "red"):
             #     config.log(f"====== {team.upper()} TEAM ======")
             #     for player_data in game_data[team]["players"]:

@@ -115,6 +115,12 @@ class GameData:
     def get_champ_name(self, champ_id):
         return self.champ_names.get(champ_id)
 
+    def get_champion_id(self, champ_handle):
+        for champ_id in self.champ_handles:
+            if self.champ_handles[champ_id] == champ_handle:
+                return champ_id
+        return None
+
     def get_champ_handle(self, champ_id):
         return self.champ_handles.get(champ_id)
 

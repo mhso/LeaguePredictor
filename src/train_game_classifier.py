@@ -1,6 +1,6 @@
 if __name__ == "__main__":
-    from sys import argv
     import argparse
+    from math import ceil
     from time import time
     import torch
     from classifier import game_classifier, game_dataset
@@ -46,8 +46,10 @@ def train(model, dataloaders, loss_func, optimizer, epochs):
                     running_loss += loss.item() * x.size(0)
                     pct = int((index / (len(dataloaders[phase].dataset) / game_classifier.BATCH_SIZE)) * 100)
                     if pct > epoch_pct:
-                        print(f"{pct}% of epoch {epoch+1} complete.", flush=True)
+                        print(f"{pct}% of epoch {epoch+1} complete.", end="\r", flush=True)
                         epoch_pct = pct
+
+                print()
 
                 epoch_loss = running_loss / len(dataloaders[phase].dataset)
                 if phase == "val":
@@ -58,18 +60,12 @@ def train(model, dataloaders, loss_func, optimizer, epochs):
 
                 config.log(f"{phase.capitalize()} Loss: {epoch_loss:.3f}")
 
-        pct = int()
-
         print()
     finally:
         model.save()
         plot_loss(train_loss, val_loss)
 
 if __name__ == "__main__":
-    if len(argv) == 1:
-        print("Please provide number of epochs.")
-        exit(0)
-
     parser = argparse.ArgumentParser()
     parser.add_argument("epochs", type=int)
     parser.add_argument("--reload", "-r", action="store_true")
@@ -78,6 +74,7 @@ if __name__ == "__main__":
 
     model = game_classifier.get_model()
     if args.reload:
+        config.log("Loading model for further training...")
         model.load()
     loss_func = game_classifier.get_loss_func()
 
@@ -87,13 +84,34 @@ if __name__ == "__main__":
 
     optimizer = game_classifier.get_optimizer(model)
 
-    dataloaders = game_dataset.get_data(
-        game_classifier.BATCH_SIZE, game_classifier.VALIDATION_SPLIT
-    )
+    time_start = time()
+    config.log(f"Loading and shuffling file names...")
 
-    config.log((
-        f"Training on {len(dataloaders['train'].dataset)} training samples ({len(dataloaders['val'].dataset)} " +
-        f"validation samples) for {args.epochs} epochs."
-    ))
+    game_files = game_dataset.get_data_files()
 
-    train(model, dataloaders, loss_func, optimizer, args.epochs)
+    duration = time() - time_start
+    config.log(f"Done in {duration:.2f} seconds.")
+
+    chunks_total = ceil(len(game_files) / game_classifier.CHUNK_SIZE)
+
+    for chunk in range(chunks_total):
+        data_split = chunk * game_classifier.CHUNK_SIZE
+        config.log(f"Start training for chunk #{chunk+1}")
+        files_train, files_test = game_dataset.get_data(
+            data_split, data_split + game_classifier.CHUNK_SIZE,
+            game_files, game_classifier.VALIDATION_SPLIT
+        )
+
+        config.log(f"Creating data loaders...")
+
+        dataloaders = game_dataset.create_dataloaders_dict(
+            game_classifier.BATCH_SIZE, files_train, files_test
+        )
+
+        config.log((
+            f"Training on {len(dataloaders['train'].dataset)} training samples "
+            f"({len(dataloaders['val'].dataset)} validation samples) with a batch " +
+            f"size of {game_classifier.BATCH_SIZE}"
+        ))
+
+        train(model, dataloaders, loss_func, optimizer, args.epochs)

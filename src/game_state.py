@@ -100,7 +100,7 @@ def determine_dragon(avg_r, avg_g, avg_b):
             continue
         matches.append(index)
 
-    if len(matches) > 1:
+    if len(matches) != 1:
         return 0 # We can't tell which dragon it is :(
 
     return matches[0]

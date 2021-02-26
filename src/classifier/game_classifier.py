@@ -10,7 +10,8 @@ LEARNING_RATE = 1
 MOMENTUM = 0.09
 WEIGHT_DECAY = 1e-4
 
-BATCH_SIZE = 64#256
+BATCH_SIZE = 128#256
+CHUNK_SIZE = 5000 # Number of game files to load into memory at once.
 VALIDATION_SPLIT = 0.8
 
 DENSE_FEATURES = 512

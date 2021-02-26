@@ -5,7 +5,7 @@ from classifier.digit_classifier import DigitClassifier
 from cv2 import imread, IMREAD_COLOR
 
 if __name__ == "__main__":
-    test_img_index = 5
+    test_img_index = 8
     img = imread(f"test_data/frame_{test_img_index}.png", IMREAD_COLOR)
     game_data_handler = TestGameData(test_img_index)
     game_classifier = GameClassifier()
