@@ -1,8 +1,8 @@
 from glob import glob
 import random
 import cv2
-import dataset_digits
-from digit_classifier import DigitClassifier
+from classifier import digit_dataset
+from classifier.digit_classifier import DigitClassifier
 
 if __name__ == "__main__": # Sanity check.
     digit_classifier = DigitClassifier()
@@ -15,7 +15,7 @@ if __name__ == "__main__": # Sanity check.
         rand_index = random.randint(0, len(files)-1)
         image = cv2.imread(files[rand_index], cv2.IMREAD_COLOR)
 
-        reshaped = dataset_digits.shape_input(image)
+        reshaped = digit_dataset.shape_input(image)
         label = digit_classifier.predict(reshaped)
 
         print(f"Predicted label: {label}", flush=True)

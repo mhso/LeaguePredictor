@@ -1,7 +1,7 @@
 from glob import glob
 from time import time
 from classifier.game_dataset_util import structure_data_in_parallel
-from game_data import GameData
+from game.game_data import GameData
 import config
 
 def group_files(files, game_data_handler, processed_checkpoint):

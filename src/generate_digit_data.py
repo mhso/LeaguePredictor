@@ -1,6 +1,6 @@
 from glob import glob
 import cv2
-import game_state
+from game import game_state
 
 FILE_PATH = "data/training_data"
 

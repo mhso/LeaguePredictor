@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-from math import ceil, floor, sqrt
+from math import ceil, floor
 
 def resize_img(img, new_size):
     return cv2.resize(img, new_size, cv2.INTER_AREA)

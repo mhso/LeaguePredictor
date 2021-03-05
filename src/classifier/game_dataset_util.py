@@ -204,7 +204,7 @@ def structure_data_for_game(data_for_file):
         with open(filename, "w", encoding="utf-8") as fp:
             for indices_x, values in data:
                 indices_str = ",".join(str(i) for i in indices_x)
-                values_str = ",".join(str(v) for v in values)
+                values_str = ",".join(f"{v:.0f}" if v < 0.00001 or v > 0.99999 else f"{v:.4f}" for v in values)
                 fp.write(indices_str + "\n")
                 fp.write(values_str + "\n")
             fp.write(f"{blue_won}")
@@ -234,15 +234,20 @@ def structure_data_in_parallel(game_files, load_processes=8):
 
 def load_data_for_game(game_file):
     with open(game_file, "r", encoding="utf-8") as fp:
-            data = fp.readlines()
-            frame_indices = []
-            frame_values = []
-            for data_index in range(0, len(data)-1, 2):
-                frame_indices.append([int(x) for x in data[data_index].split(",")])
-                frame_values.append([float(x) for x in data[data_index+1].split(",")])
-            label = float(data[-1])
+        data = fp.readlines()
+        frame_indices = []
+        frame_values = []
+        for data_index in range(0, len(data)-1, 2):
+            indices = [int(x) for x in data[data_index].split(",")]
+            values = [float(x) for x in data[data_index+1].split(",")]
+            if len(values) == 200:
+                frame_indices.append(indices)
+                frame_values.append(values)
+            else:
+                print(f"Skipped erroneous data point in file '{game_file}'.", flush=True)
+        label = float(data[-1])
 
-            return (frame_indices, frame_values, label)
+        return (frame_indices, frame_values, label)
 
 def pool_loading_task(games):
     data = []

@@ -17,58 +17,69 @@ def plot_loss(train_loss, val_loss):
     ax_2.plot(val_loss)
     plt.show()
 
-def train(model, dataloaders, loss_func, optimizer, epochs):
-    train_loss = []
-    val_loss = []
+def train(model, dataloaders, loss_func, optimizer, epoch):
+    train_loss = 0
+    val_loss = 0
     try:
-        for epoch in range(epochs):
-            print(f"=== Epoch {epoch+1} ===")
-            for phase in ['train', 'val']:
-                if phase == 'train':
-                    model.train()
-                    time_before = time()
-                else:
-                    model.eval()
-                running_loss = 0.0
-                epoch_pct = 0
-                for index, (x, y) in enumerate(dataloaders[phase]):
-                    x = x.to_dense()
-                    if config.TRAIN_WITH_GPU:
-                        x = x.cuda()
-                        y = y.cuda()
-                    optimizer.zero_grad()
-                    with torch.set_grad_enabled(phase == 'train'):
-                        out = model(x)
-                        loss = loss_func(out, y.float())
-                        if phase == 'train': # update weights in training runs
-                            loss.backward()
-                            optimizer.step()
-                    running_loss += loss.item() * x.size(0)
-                    pct = int((index / (len(dataloaders[phase].dataset) / game_classifier.BATCH_SIZE)) * 100)
-                    if pct > epoch_pct:
-                        print(f"{pct}% of epoch {epoch+1} complete.", end="\r", flush=True)
-                        epoch_pct = pct
+        print(f"=== Epoch {epoch+1} ===")
+        for phase in ['train', 'val']:
+            if phase == 'train':
+                model.train()
+                time_before = time()
+            else:
+                model.eval()
+            running_loss = 0.0
+            epoch_pct = 0
+            for index, (x, y) in enumerate(dataloaders[phase]):
+                x = x.to_dense()
+                if config.TRAIN_WITH_GPU:
+                    x = x.cuda()
+                    y = y.cuda()
+                optimizer.zero_grad()
+                with torch.set_grad_enabled(phase == 'train'):
+                    out = model(x)
+                    if len(out[out == 1]) == len(out):
+                        config.log("Gradient exploded!!", config.LOG_ERROR)
+                        print(out)
+                        exit(1)
+                    loss = loss_func(out, y.float())
+                    if phase == 'train': # update weights in training runs
+                        loss.backward()
+                        optimizer.step()
+                running_loss += loss.item() * x.size(0)
+                pct = int((index / (len(dataloaders[phase].dataset) / game_classifier.BATCH_SIZE)) * 100)
+                if pct > epoch_pct:
+                    config.log(
+                        (f"Epoch is {pct}% complete. Loss: " +
+                        f"{running_loss / (index * game_classifier.BATCH_SIZE)}"),
+                        end="\r")
+                    epoch_pct = pct
 
-                print()
+            print()
 
-                epoch_loss = running_loss / len(dataloaders[phase].dataset)
-                if phase == "val":
-                    config.log(f"Time taken: {time() - time_before:.2f} seconds")
-                    val_loss.append(epoch_loss)
-                else:
-                    train_loss.append(epoch_loss)
-
-                config.log(f"{phase.capitalize()} Loss: {epoch_loss:.3f}")
+            epoch_loss = running_loss / len(dataloaders[phase].dataset)
+            if phase == "val":
+                config.log(f"Time taken for epoch: {time() - time_before:.2f} seconds")
+                val_loss = epoch_loss
+            else:
+                train_loss = epoch_loss
 
         print()
     finally:
+        config.log("=" * 50)
+        config.log("Saving model to file...")
+        model.cpu()
         model.save()
-        plot_loss(train_loss, val_loss)
+        if config.TRAIN_WITH_GPU:
+            model.cuda()
+
+    return train_loss, val_loss
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("epochs", type=int)
     parser.add_argument("--reload", "-r", action="store_true")
+    parser.add_argument("--chunk", type=int)
 
     args = parser.parse_args()
 
@@ -94,24 +105,49 @@ if __name__ == "__main__":
 
     chunks_total = ceil(len(game_files) / game_classifier.CHUNK_SIZE)
 
-    for chunk in range(chunks_total):
-        data_split = chunk * game_classifier.CHUNK_SIZE
-        config.log(f"Start training for chunk #{chunk+1}")
-        files_train, files_test = game_dataset.get_data(
-            data_split, data_split + game_classifier.CHUNK_SIZE,
-            game_files, game_classifier.VALIDATION_SPLIT
-        )
+    train_losses = []
+    val_losses = []
+    chunk = 0 if args.chunk is None else args.chunk
 
-        config.log(f"Creating data loaders...")
+    try:
+        for epoch in range(args.epochs):
+            data_split = chunk * game_classifier.CHUNK_SIZE
+            files_train, files_test = game_dataset.get_data(
+                data_split, data_split + game_classifier.CHUNK_SIZE,
+                game_files, game_classifier.VALIDATION_SPLIT
+            )
 
-        dataloaders = game_dataset.create_dataloaders_dict(
-            game_classifier.BATCH_SIZE, files_train, files_test
-        )
+            config.log(f"Creating data loaders...")
 
-        config.log((
-            f"Training on {len(dataloaders['train'].dataset)} training samples "
-            f"({len(dataloaders['val'].dataset)} validation samples) with a batch " +
-            f"size of {game_classifier.BATCH_SIZE}"
-        ))
+            time_start = time()
+            dataloaders = game_dataset.create_dataloaders_dict(
+                game_classifier.BATCH_SIZE, files_train, files_test
+            )
+            duration = time() - time_start
+            config.log(f"Done in {duration:.2f} seconds.")
 
-        train(model, dataloaders, loss_func, optimizer, args.epochs)
+            samples_train = len(dataloaders['train'].dataset)
+            samples_val = len(dataloaders['val'].dataset)
+            samples_total = samples_train + samples_val
+
+            config.log((
+                f"Chunk: From file #{data_split} to file " 
+                f"#{data_split + game_classifier.CHUNK_SIZE} "
+                f"({samples_total} samples)"
+            ))
+            config.log(f"Training Samples: {samples_train}")
+            config.log(f"Validation Samples: {samples_val}")
+            config.log(f"Chunk Size: {game_classifier.CHUNK_SIZE}")
+            config.log(f"Batch Size: {game_classifier.BATCH_SIZE}")
+            config.log(f"Learning Rate: {game_classifier.LEARNING_RATE}")
+
+            train_loss, val_loss = train(model, dataloaders, loss_func, optimizer, epoch)
+            train_losses.append(train_loss)
+            val_losses.append(val_loss)
+
+            if data_split + game_classifier.CHUNK_SIZE > len(game_files):
+                chunk = 0
+            else:
+                chunk += 1
+    finally:
+        plot_loss(train_losses, val_losses)

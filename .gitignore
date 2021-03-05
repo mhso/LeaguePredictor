@@ -1,4 +1,5 @@
 data
+src/game/transponder.py
 test_data
 __pycache__
 *.pt

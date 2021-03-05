@@ -3,7 +3,7 @@ dim_2 = teams (2)
 dim_3 = players (5) + team_data (1)
 dim_4 = data for player (15)
 
-player_data = [champ_id (1) + summoner_spells (2) + level (1) + items (7) + kda (3) + cs (1)
+player_data = [kda (3) + cs (1) + level (1) + champ_id (1) + summoner_spells (2) + items (7)
 
 team_data = [turrets_destroyed (1) + dragons (4) + padding (10)]
 

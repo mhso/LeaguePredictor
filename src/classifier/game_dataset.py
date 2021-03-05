@@ -1,10 +1,63 @@
 from glob import glob
-from time import time
 import numpy as np
 import torch
+from game.game_data import GameData
 from torch.utils.data import Dataset, DataLoader
 from classifier.game_dataset_util import load_data_in_parallel, sparse_onehot_indices
 import config
+
+def visualize_data_matrix(datapoint):
+    game_data = GameData()
+    sparse_tensor, label = datapoint
+    dense = sparse_tensor.to_dense()
+
+    team_names = ["Blue", "Red"]
+
+    for team_id in range(2):
+        print(f"===== {team_names[team_id]} team =====")
+        for player_id in range(5):
+            player_data = dense[team_id][player_id]
+            level = player_data[0] * 18
+            kills_ratio = player_data[1]
+            deaths_ratio = player_data[2]
+            assists_ratio = player_data[3]
+            cs_ratio = player_data[4]
+            all_champ_names = game_data.get_champion_names()
+            all_item_ids = game_data.get_item_ids()
+            summ_start = 5
+            num_summs = len(game_data.summ_index)
+            summ_names = []
+            for summ_index in range(summ_start, summ_start+num_summs):
+                if player_data[summ_index] == 1:
+                    summ_names.append(game_data.get_summoner_spell_name(summ_index-summ_start+1))
+
+            champ_start = summ_start+num_summs
+            num_champs = len(game_data.champ_index)
+            champ_name = None
+            for champ_index in range(champ_start, champ_start+num_champs):
+                if player_data[champ_index] == 1:
+                    champ_name = all_champ_names[champ_index-champ_start]
+                    break
+
+            item_start = champ_start+num_champs
+            num_items = len(game_data.item_index)
+            item_names = []
+            for item_index in range(item_start, item_start+num_items):
+                if player_data[item_index] == 1:
+                    item_id = all_item_ids[item_index-item_start]
+                    item_names.append(game_data.get_item_name(item_id))
+
+            player_str = (
+                f"- Player {player_id+1}: Level: {level}, Kills: {kills_ratio}, "
+                f"Assists: {assists_ratio}, Deaths: {deaths_ratio}, CS: {cs_ratio}, "
+                f"Champ: {champ_name}, Summoners: {summ_names}, Items: {item_names}"
+            )
+            print(player_str)
+        towers_ratio = dense[team_id][0][-5]
+        dragons = dense[team_id][0][-4:]
+        print(f"Towers: {towers_ratio}, Dragons: {dragons}")
+
+    print(f"BLUE WON: {bool(label)}")
 
 def create_sparse_tensor(indices_x, values, size):
     indices_z = []

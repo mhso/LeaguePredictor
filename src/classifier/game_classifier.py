@@ -1,18 +1,18 @@
 import torch
 import config
 
-CONV_FILTERS = 128
+CONV_FILTERS = 256
 KERNEL_SIZE = 3
 
 RHO = 0.9
 EPS = 1e-6
-LEARNING_RATE = 1
-MOMENTUM = 0.09
-WEIGHT_DECAY = 1e-4
+LEARNING_RATE = 0.001
+MOMENTUM = 0.9
+WEIGHT_DECAY = 1e-5
 
-BATCH_SIZE = 128#256
-CHUNK_SIZE = 5000 # Number of game files to load into memory at once.
-VALIDATION_SPLIT = 0.8
+BATCH_SIZE = 64#256
+CHUNK_SIZE = 4500 # Number of game files to load into memory at once.
+VALIDATION_SPLIT = 0.75
 
 DENSE_FEATURES = 512
 
@@ -42,7 +42,10 @@ class GameClassifier(torch.nn.Module):
         self.dense_features_1 = CONV_FILTERS * 2 * (config.GAME_INPUT_DIM[1] // 2) * (config.GAME_INPUT_DIM[2] // 2)
 
         self.dense_1 = torch.nn.Linear(self.dense_features_1, DENSE_FEATURES)
+        self.relu_3 = torch.nn.LeakyReLU()
         self.dense_2 = torch.nn.Linear(DENSE_FEATURES, DENSE_FEATURES // 2)
+        self.relu_4 = torch.nn.LeakyReLU()
+        self.drop_2 = torch.nn.Dropout(0.5)
         self.dense_3 = torch.nn.Linear(DENSE_FEATURES // 2, 1)
 
         self.sigmoid = torch.nn.Sigmoid()
@@ -61,8 +64,12 @@ class GameClassifier(torch.nn.Module):
 
         x = x.view(-1, self.dense_features_1)
         x = self.dense_1(x)
+        x = self.relu_3(x)
         x = self.dense_2(x)
+        x = self.relu_4(x)
         x = self.dense_3(x)
+
+        x = self.drop_2(x)
 
         x = self.sigmoid(x)
 
@@ -88,7 +95,11 @@ def get_loss_func():
     return torch.nn.MSELoss()
 
 def get_optimizer(model):
-    return torch.optim.Adadelta(
-        model.parameters(), rho=RHO,
-        eps=EPS, weight_decay=WEIGHT_DECAY
+    return torch.optim.SGD(
+        model.parameters(), lr=LEARNING_RATE,
+        momentum=MOMENTUM, weight_decay=WEIGHT_DECAY
     )
+    # return torch.optim.AdaDelta(
+    #     model.parameters(), rho=RHO,
+    #     eps=EPS, weight_decay=WEIGHT_DECAY
+    # )
